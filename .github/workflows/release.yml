@@ -60,6 +60,11 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "New version: $VERSION"
 
+      - name: Generate conventional changelog
+        if: steps.changesets.outputs.has_changesets == 'true'
+        run: |
+          npm run changelog
+
       - name: Read changelog
         if: steps.changesets.outputs.has_changesets == 'true'
         id: changelog
@@ -73,6 +78,68 @@ jobs:
           else
             echo "changelog=No changelog available" >> $GITHUB_OUTPUT
           fi
+      
+      - name: Get previous tag
+        if: steps.changesets.outputs.has_changesets == 'true'
+        id: previous-tag
+        run: |
+          PREVIOUS_TAG=$(git describe --abbrev=0 --tags 2>/dev/null || echo "")
+          echo "tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          echo "Previous tag: $PREVIOUS_TAG"
+      
+      - name: Generate release notes from commits
+        if: steps.changesets.outputs.has_changesets == 'true'
+        id: release-notes
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG="${{ steps.previous-tag.outputs.tag }}"
+          
+          # Generate release notes with conventional commits grouping
+          if [ -z "$PREVIOUS_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%s" --no-merges)
+          else
+            COMMITS=$(git log ${PREVIOUS_TAG}..HEAD --pretty=format:"%s" --no-merges)
+          fi
+          
+          # Parse conventional commits and group them
+          FEATURES=$(echo "$COMMITS" | grep "^feat" | sed 's/^feat[:(]//' | sed 's/^[^:]*: /- /' || echo "")
+          FIXES=$(echo "$COMMITS" | grep "^fix" | sed 's/^fix[:(]//' | sed 's/^[^:]*: /- /' || echo "")
+          DOCS=$(echo "$COMMITS" | grep "^docs" | sed 's/^docs[:(]//' | sed 's/^[^:]*: /- /' || echo "")
+          PERF=$(echo "$COMMITS" | grep "^perf" | sed 's/^perf[:(]//' | sed 's/^[^:]*: /- /' || echo "")
+          REFACTOR=$(echo "$COMMITS" | grep "^refactor" | sed 's/^refactor[:(]//' | sed 's/^[^:]*: /- /' || echo "")
+          CHORE=$(echo "$COMMITS" | grep "^chore" | sed 's/^chore[:(]//' | sed 's/^[^:]*: /- /' || echo "")
+          
+          # Build the release notes
+          RELEASE_NOTES=""
+          
+          if [ ! -z "$FEATURES" ]; then
+            RELEASE_NOTES="${RELEASE_NOTES}### ✨ Features\n\n${FEATURES}\n\n"
+          fi
+          
+          if [ ! -z "$FIXES" ]; then
+            RELEASE_NOTES="${RELEASE_NOTES}### 🐛 Bug Fixes\n\n${FIXES}\n\n"
+          fi
+          
+          if [ ! -z "$PERF" ]; then
+            RELEASE_NOTES="${RELEASE_NOTES}### ⚡ Performance Improvements\n\n${PERF}\n\n"
+          fi
+          
+          if [ ! -z "$REFACTOR" ]; then
+            RELEASE_NOTES="${RELEASE_NOTES}### ♻️ Code Refactoring\n\n${REFACTOR}\n\n"
+          fi
+          
+          if [ ! -z "$DOCS" ]; then
+            RELEASE_NOTES="${RELEASE_NOTES}### 📚 Documentation\n\n${DOCS}\n\n"
+          fi
+          
+          if [ ! -z "$CHORE" ]; then
+            RELEASE_NOTES="${RELEASE_NOTES}### 🔧 Chores\n\n${CHORE}\n\n"
+          fi
+          
+          # Save to output
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Commit version bump
         if: steps.changesets.outputs.has_changesets == 'true'
@@ -82,20 +149,34 @@ jobs:
           git commit -m "chore: bump version to ${{ steps.package-version.outputs.version }}" || echo "No changes to commit"
           git push origin main || echo "Nothing to push"
 
+      - name: Build release body
+        if: steps.changesets.outputs.has_changesets == 'true'
+        id: release-body
+        run: |
+          BODY="## 🚀 What's Changed\n\n"
+          BODY="${BODY}${{ steps.release-notes.outputs.notes }}\n\n"
+          BODY="${BODY}## 📝 Changeset Notes\n\n"
+          BODY="${BODY}${{ steps.changelog.outputs.changelog }}\n\n"
+          BODY="${BODY}---\n\n"
+          
+          PREVIOUS_TAG="${{ steps.previous-tag.outputs.tag }}"
+          if [ ! -z "$PREVIOUS_TAG" ]; then
+            BODY="${BODY}**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREVIOUS_TAG}...v${{ steps.package-version.outputs.version }}"
+          else
+            BODY="${BODY}**Full Changelog**: https://github.com/${{ github.repository }}/commits/v${{ steps.package-version.outputs.version }}"
+          fi
+          
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
         if: steps.changesets.outputs.has_changesets == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.package-version.outputs.version }}
           name: Release v${{ steps.package-version.outputs.version }}
-          body: |
-            ## Changes
-            
-            ${{ steps.changelog.outputs.changelog }}
-            
-            ---
-            
-            Full changelog: [CHANGELOG.md](CHANGELOG.md)
+          body: ${{ steps.release-body.outputs.body }}
           draft: false
           prerelease: false
         env:

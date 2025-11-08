@@ -34,6 +34,13 @@ Closes #
 - [ ] Tested locally
 - [ ] Added/updated tests (if applicable)
 
+## Checklist
+
+- [ ] **Changeset added** (required) - Run `npm run changeset` if not done yet
+- [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/) format
+- [ ] Code passes linting (`npm run check`)
+- [ ] Type checking passes (`npx tsc --noEmit`)
+
 ## Notes
 
 <!-- Any additional context, screenshots, or information -->

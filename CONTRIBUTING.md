@@ -195,6 +195,33 @@ Before submitting your PR:
 3. Once approved, your PR will be merged
 4. After merge, a release will be automatically created (if changeset is present)
 
+## Release Process
+
+Releases are fully automated! Here's how it works:
+
+### Automatic Release Generation
+
+When a PR with changesets is merged to `main`, the release workflow automatically:
+
+1. **Bumps the version** based on changesets (patch/minor/major)
+2. **Generates CHANGELOG.md** using conventional-changelog
+3. **Creates release notes** from your conventional commits, grouped by type:
+   - ✨ Features (`feat:`)
+   - 🐛 Bug Fixes (`fix:`)
+   - ⚡ Performance Improvements (`perf:`)
+   - ♻️ Code Refactoring (`refactor:`)
+   - 📚 Documentation (`docs:`)
+   - 🔧 Chores (`chore:`)
+4. **Creates a GitHub release** with comprehensive release notes
+5. **Commits and pushes** the version bump and changelog
+
+### Best Practices for Releases
+
+1. **Write clear commit messages** - They become your release notes!
+2. **Use appropriate commit types** - This groups changes logically
+3. **Add changesets** - Required for version bumping
+4. **Keep commits atomic** - One logical change per commit
+
 
 ## Debugging Tips
 
