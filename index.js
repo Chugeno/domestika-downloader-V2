@@ -1,6 +1,7 @@
 const fs = require('fs');
 const util = require('util');
-const exec = util.promisify(require('child_process').exec);
+const { execFile } = require('child_process');
+const execFileAsync = util.promisify(execFile);
 const puppeteer = require('puppeteer');
 const cheerio = require('cheerio');
 const path = require('path');
@@ -22,6 +23,20 @@ let quality;
 let downloadOption;
 
 // --- END CONFIGURATION ---
+
+function sanitizePathSegment(value) {
+    return value
+        .replace(/[<>:"/\\|?*]/g, '-')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+async function runBinary(command, args, options = {}) {
+    return execFileAsync(command, args, {
+        maxBuffer: 1024 * 1024 * 100,
+        ...options
+    });
+}
 
 // Función para verificar e instalar dependencias
 async function checkAndInstallDependencies() {
@@ -46,7 +61,7 @@ async function checkAndInstallDependencies() {
     if (missingModules.length > 0) {
         console.log(`\nInstalando dependencias faltantes: ${missingModules.join(', ')}...`);
         try {
-            await exec(`npm install ${missingModules.join(' ')}`);
+            await runBinary('npm', ['install', ...missingModules]);
             console.log('Dependencias instaladas correctamente.');
             
             for (const [moduleName, requireFn] of Object.entries(requiredModules)) {
@@ -411,15 +426,18 @@ async function downloadVideo(vData, courseTitle, unitTitle, index, subtitle_lang
         throw new Error(`URL de video no válida para ${vData.title}`);
     }
 
-    const cleanPath = (path) => path.replace(/\/+/g, '/');
-    const finalDir = cleanPath(`domestika_courses/${courseTitle}/${vData.section}/${unitTitle}`);
+    const sanitizedCourseTitle = sanitizePathSegment(courseTitle);
+    const sanitizedSection = sanitizePathSegment(vData.section);
+    const sanitizedUnitTitle = sanitizePathSegment(unitTitle);
+    const sanitizedVideoTitle = sanitizePathSegment(vData.title.trimEnd());
+    const finalDir = path.join('domestika_courses', sanitizedCourseTitle, sanitizedSection, sanitizedUnitTitle);
     
     try {
         if (!fs.existsSync(finalDir)) {
             fs.mkdirSync(finalDir, { recursive: true });
         }
         
-        const fileName = `${courseTitle} - U${unitNumber} - ${index}_${vData.title.trimEnd()}`;
+        const fileName = `${sanitizedCourseTitle} - U${unitNumber} - ${index}_${sanitizedVideoTitle}`;
         
         console.log('\nInformación de descarga:');
         console.log('URL:', vData.playbackURL);
@@ -432,18 +450,26 @@ async function downloadVideo(vData, courseTitle, unitTitle, index, subtitle_lang
         
         try {
             // Intentar primero con 1080p
-            await exec(
-                `./N_m3u8DL-RE -sv "res=1920x1080" "${vData.playbackURL}" --save-dir "${finalDir}" --save-name "${fileName}" --tmp-dir ".tmp" --log-level OFF`,
-                { maxBuffer: 1024 * 1024 * 100 }
-            );
+            await runBinary('./N_m3u8DL-RE', [
+                '-sv', 'res=1920x1080',
+                vData.playbackURL,
+                '--save-dir', finalDir,
+                '--save-name', fileName,
+                '--tmp-dir', '.tmp',
+                '--log-level', 'OFF'
+            ]);
             downloadSuccess = true;
         } catch (error) {
             // Si falla 1080p, intentar con best
             console.log('No se encontró calidad 1080p, intentando con la mejor calidad disponible...');
-            await exec(
-                `./N_m3u8DL-RE -sv "for=best" "${vData.playbackURL}" --save-dir "${finalDir}" --save-name "${fileName}" --tmp-dir ".tmp" --log-level OFF`,
-                { maxBuffer: 1024 * 1024 * 100 }
-            );
+            await runBinary('./N_m3u8DL-RE', [
+                '-sv', 'for=best',
+                vData.playbackURL,
+                '--save-dir', finalDir,
+                '--save-name', fileName,
+                '--tmp-dir', '.tmp',
+                '--log-level', 'OFF'
+            ]);
             downloadSuccess = true;
         }
 
@@ -453,10 +479,16 @@ async function downloadVideo(vData, courseTitle, unitTitle, index, subtitle_lang
             if (subtitle_lang) {
                 console.log('Descargando subtítulos...');
                 try {
-                    await exec(
-                        `./N_m3u8DL-RE --auto-subtitle-fix --sub-format SRT --select-subtitle lang="${subtitle_lang}":for=all "${vData.playbackURL}" --save-dir "${finalDir}" --save-name "${fileName}" --tmp-dir ".tmp" --log-level OFF`,
-                        { maxBuffer: 1024 * 1024 * 100 }
-                    );
+                    await runBinary('./N_m3u8DL-RE', [
+                        '--auto-subtitle-fix',
+                        '--sub-format', 'SRT',
+                        '--select-subtitle', `lang="${subtitle_lang}":for=all`,
+                        vData.playbackURL,
+                        '--save-dir', finalDir,
+                        '--save-name', fileName,
+                        '--tmp-dir', '.tmp',
+                        '--log-level', 'OFF'
+                    ]);
 
                     const subPath = path.join(finalDir, `${fileName}.${subtitle_lang}.srt`);
                     const videoPath = path.join(finalDir, `${fileName}.mp4`);
@@ -491,7 +523,13 @@ async function embedSubtitles(videoPath, subtitlePath) {
         // Crear una copia del archivo SRT con el mismo nombre que el video
         fs.copyFileSync(subtitlePath, finalSrtPath);
 
-        await exec(`ffmpeg -i "${videoPath}" -i "${subtitlePath}" -c copy -c:s mov_text "${outputPath}"`);
+        await runBinary('ffmpeg', [
+            '-i', videoPath,
+            '-i', subtitlePath,
+            '-c', 'copy',
+            '-c:s', 'mov_text',
+            outputPath
+        ]);
         
         // Si todo salió bien, reemplazamos el archivo original
         fs.unlinkSync(videoPath);
