@@ -419,7 +419,8 @@ async function downloadVideo(vData, courseTitle, unitTitle, index, subtitle_lang
             fs.mkdirSync(finalDir, { recursive: true });
         }
         
-        const fileName = `${courseTitle} - U${unitNumber} - ${index}_${vData.title.trimEnd()}`;
+        const safeTitle = vData.title.trimEnd().replace(/[/\\?%*:|"<>]/g, '-');
+        const fileName = `${courseTitle} - U${unitNumber} - ${index}_${safeTitle}`;
         
         console.log('\nInformación de descarga:');
         console.log('URL:', vData.playbackURL);
