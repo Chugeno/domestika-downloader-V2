@@ -10,13 +10,8 @@ const domestikaAuth = require('./auth.js');
 let inquirer;
 
 // --- CONFIGURATION ---
-const debug = false;
-const debug_data = [];
-
 // Estas variables se obtendrán del usuario
-let course_url;
 let subtitle_lang;
-let quality;
 let downloadOption;
 
 // --- END CONFIGURATION ---
